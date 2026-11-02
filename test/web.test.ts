@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { openStore } from "../src/store"
@@ -105,6 +105,23 @@ describe("server routes", () => {
       expect((await fetch(`${server.base}/api/unknown`)).status).toBe(404)
       expect((await fetch(`${server.base}/api/board`, { method: "POST" })).status).toBe(405)
       expect((await fetch(`${server.base}/nope`)).status).toBe(404)
+    } finally {
+      server.stop()
+    }
+  })
+
+  test("an unreadable sidecar is a 503, never a false empty board", async () => {
+    // The failure this guards is "the file is there but cannot be read" — a
+    // read-only mount of a WAL database, a wrong owner, or a corrupt file.
+    // Serving that as "No tickets" would hide every ticket that exists.
+    const dbPath = path.join(root, "unreadable", "tickets.db")
+    mkdirSync(path.dirname(dbPath), { recursive: true })
+    writeFileSync(dbPath, "this is not a sqlite database\n")
+    const server = await serve(dbPath)
+    try {
+      const response = await fetch(`${server.base}/api/board`)
+      expect(response.status).toBe(503)
+      expect(await response.json()).toMatchObject({ sidecar: dbPath })
     } finally {
       server.stop()
     }

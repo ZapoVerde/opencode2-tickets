@@ -163,6 +163,8 @@ Each trace entry is a link to `#message-<id>` in the session that produced it, w
 
 The sidecar is opened read-only per request, so a ticket written by a running agent appears on refresh, and a not-yet-created sidecar reads as an empty board rather than an error.
 
+**The sidecar directory must be writable even though the board only reads.** SQLite needs to create `-wal` and `-shm` files beside a WAL database; on a read-only mount the open fails with `SQLITE_READONLY_DIRECTORY`. That is reported as a `503` naming the path, not as an empty board, so a deployment mistake cannot look like "no tickets".
+
 ## Deployment
 
 The stack runs the board as its own container, mirroring the usage sidecar:

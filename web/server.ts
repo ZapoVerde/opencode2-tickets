@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import path from "node:path"
 import { emptyBoard, readBoard, type BoardResponse } from "../src/board"
 import { createLiveness } from "../src/liveness"
-import { openStore, resolveDatabasePath } from "../src/store"
+import { openStore, resolveDatabasePath, type TicketStore } from "../src/store"
 import { ALL_INTERFACES, LOOPBACK, parseArguments, usage } from "./flags"
 
 /**
@@ -56,12 +56,28 @@ console.log(`sidecar: ${dbPath}`)
 
 const liveness = createLiveness()
 
-function readNow(): BoardResponse {
-  const store = openStore(dbPath, { readonly: true })
+/**
+ * Read the sidecar. `null` means the file exists but cannot be opened, which is
+ * a deployment problem (a read-only mount of a WAL database, or the wrong owner)
+ * rather than "no tickets". The two must not look alike: one is an empty board,
+ * the other is a board that would silently lie about having no work.
+ */
+function readNow(): BoardResponse | null {
+  const store = openTicketStore()
+  if (store === null) return null
   try {
     return readBoard(store, Date.now(), liveness)
   } finally {
     store.close()
+  }
+}
+
+function openTicketStore(): TicketStore | null {
+  try {
+    return openStore(dbPath, { readonly: true })
+  } catch (error) {
+    console.error(`[opencode2-tickets] cannot open ${dbPath} read-only: ${error instanceof Error ? error.message : String(error)}`)
+    return null
   }
 }
 
@@ -73,7 +89,13 @@ function requestHandler(request: Request) {
     // up on refresh without a restart, and so the board never holds a writer.
     // A sidecar that does not exist yet reads as an empty board, not an error:
     // the board is often deployed before any agent has written a ticket.
-    return json(existsSync(dbPath) ? readNow() : emptyBoard(Date.now()), 200)
+    if (!existsSync(dbPath)) return json(emptyBoard(Date.now()), 200)
+    const body = readNow()
+    // An unreadable sidecar is a 503 with a reason, so the page can say what is
+    // wrong instead of rendering "no tickets yet" over work that exists.
+    if (body === null)
+      return json({ error: "cannot read the tickets sidecar", sidecar: dbPath }, 503)
+    return json(body, 200)
   }
   if (url.pathname === "/api/meta") {
     return json({ sidecar: dbPath, sidecarExists: existsSync(dbPath), capabilities: ["board"] }, 200)

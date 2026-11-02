@@ -160,13 +160,27 @@ const load = async () => {
   const summary = document.getElementById("summary")
   try {
     const response = await fetch("./api/board", { cache: "no-store" })
-    if (!response.ok) throw new Error(`board returned ${response.status}`)
+    if (!response.ok) {
+      // 503 is "the sidecar exists but I cannot read it", which is a deployment
+      // problem, not an empty board. Say so instead of rendering zero tickets
+      // over work that is actually there.
+      const body = await response.json().catch(() => ({}))
+      summary.textContent = response.status === 503 ? "Cannot read the ticket sidecar" : "Unavailable"
+      outdated.textContent =
+        response.status === 503
+          ? `The sidecar at ${body.sidecar ?? "the configured path"} could not be opened. It is most likely mounted read-only or owned by another user; a WAL database needs a writable directory.`
+          : "This board is from an older build and cannot read the tickets sidecar. Restart it with docker restart opencode2-tickets."
+      outdated.hidden = false
+      return
+    }
     state.board = await response.json()
     outdated.hidden = true
     render()
   } catch (error) {
     // A stale image is the common cause: the page and the API come from the
     // same container, so a route the process does not serve means "restart it".
+    outdated.textContent =
+      "This board is from an older build and cannot read the tickets sidecar. Restart it with docker restart opencode2-tickets."
     outdated.hidden = false
     summary.textContent = "Unavailable"
     console.error(error)

@@ -9,10 +9,13 @@ Everything below is outside this repository except the plugin itself.
 
 - Plugin repo clean at `5287a41` (87 tests, typecheck clean).
 - App changes are on branch **`tickets-phase-1-replay`**, based on current main
-  `b4ea8435f4`, in the worktree `/tmp/opencode/replay`. Verified there:
-  `typecheck:tsc` clean, `test:unit` 957/957, the two tickets e2e cases pass in
-  built mode, and the core host test passes.
-- `packages/app/dist` in that worktree is **built and contains the Tickets entry**.
+  `b4ea8435f4`, in the worktree
+  `/opencode2-state/data/opencode/worktree/d7fa1d/tickets-phase-1-replay`. Verified
+  there after the move: `typecheck:tsc` clean, `test:unit` 957/957, the core host test
+  passes, and the two tickets e2e cases passed in built mode before the move.
+- `packages/app/dist` in that worktree is **built and contains the Tickets entry**
+  (`dist/_assets/index-Cv8EjQZd.js` references `mobile-tabs-tickets`, and `dist/sw.js`
+  carries the `/tickets` denylist).
 - `/config/workspace/stacks/opencode2/compose.yaml` has the `tickets` service;
   `docker compose config` validates.
 - `/config/workspace/stacks/opencode2/ui.conf` has the `/tickets` redirect and proxy.
@@ -60,7 +63,7 @@ fail loudly rather than silently passing.
 already there to copy:
 
 ```sh
-cd /tmp/opencode/replay/packages/app
+cd /opencode2-state/data/opencode/worktree/d7fa1d/tickets-phase-1-replay/packages/app
 bun run build                     # already done; re-run after merging normally
 
 rm -rf /config/workspace/opencode2/packages/app/dist

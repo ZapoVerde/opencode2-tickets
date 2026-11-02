@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Tickets</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <h1 class="visually-hidden">Tickets</h1>
+
+    <header class="topbar">
+      <div class="title-block">
+        <p class="eyebrow">Tickets</p>
+        <p id="summary" class="summary">Loading…</p>
+      </div>
+      <button id="refresh" type="button" class="refresh" aria-label="Refresh">Refresh</button>
+    </header>
+
+    <div id="outdated" class="banner" hidden>
+      This board is from an older build and cannot read the tickets sidecar. Restart it with
+      <code>docker restart opencode2-tickets</code>.
+    </div>
+    <div id="empty" class="banner" hidden>
+      No tickets yet. An agent creates one with the ticket tools when work starts and is not deployable.
+    </div>
+
+    <main id="board" class="board">
+      <section class="group" data-group="needsYou">
+        <h2 class="group-title">Needs you</h2>
+        <p class="group-note">Waiting on a person or blocked by one.</p>
+        <div id="needsYou" class="cards"></div>
+      </section>
+      <section class="group" data-group="working">
+        <h2 class="group-title">Moving</h2>
+        <p class="group-note">An agent owns this. A healthy ticket takes no space here.</p>
+        <div id="working" class="cards"></div>
+      </section>
+      <section class="group" data-group="closed">
+        <h2 class="group-title">Settled</h2>
+        <p class="group-note">Deployed, abandoned, or superseded.</p>
+        <div id="closed" class="cards"></div>
+      </section>
+    </main>
+
+    <p class="footnote">
+      Read-only. Writes happen through the ticket tools an agent calls, so this page has no buttons that change state.
+    </p>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

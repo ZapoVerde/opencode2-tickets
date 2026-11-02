@@ -1,0 +1,351 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --panel: #151a22;
+  --panel-2: #1b212b;
+  --line: #2a3341;
+  --text: #e8ecf3;
+  --muted: #98a3b6;
+  --faint: #6d7889;
+  --accent: #6ea8fe;
+  --good: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --radius: 10px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: 0 16px calc(32px + env(safe-area-inset-bottom));
+  color: var(--text);
+  background:
+    radial-gradient(1200px 500px at 15% -10%, rgba(63, 140, 255, 0.12), transparent 60%),
+    radial-gradient(900px 420px at 90% -20%, rgba(167, 139, 250, 0.08), transparent 55%),
+    var(--bg);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -16px 16px;
+  padding: 14px 16px 12px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+
+.title-block {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.summary {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.refresh {
+  flex: none;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.refresh:hover,
+.refresh:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.banner {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.banner code {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  max-width: 900px;
+}
+
+.group-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.group-note {
+  margin: 2px 0 10px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 14px;
+}
+
+/* A healthy ticket is quiet: no accent rail, muted metadata. */
+.card[data-attention="true"] {
+  border-left: 3px solid var(--warn);
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stage {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--muted);
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.stage[data-stage="ready-to-deploy"] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.stage[data-stage="held"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stage[data-stage="deployed"] {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.stage[data-stage="abandoned"],
+.stage[data-stage="superseded"] {
+  color: var(--faint);
+}
+
+.intent {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.question {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.question::before {
+  content: "Open question · ";
+  color: var(--faint);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.meta code {
+  font-family: var(--mono);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.meta-date {
+  color: var(--faint);
+}
+
+.flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.flag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.flag[data-tone="warn"] {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--line));
+  color: var(--warn);
+}
+
+.flag[data-tone="bad"] {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
+  color: var(--bad);
+}
+
+.flag[data-tone="good"] {
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+  color: var(--good);
+}
+
+.section-label {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.artifacts,
+.traces,
+.relations {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.artifacts li,
+.relations li {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.artifacts code,
+.traces code {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.trace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--muted);
+}
+
+.trace-meta {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.trace a {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.trace a:hover,
+.trace a:focus-visible {
+  text-decoration: underline;
+}
+
+.trace-text {
+  color: var(--muted);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.footnote {
+  max-width: 900px;
+  margin: 28px 0 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+@media (max-width: 560px) {
+  body {
+    font-size: 15px;
+  }
+
+  .card-head {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .stage {
+    align-self: flex-start;
+  }
+}

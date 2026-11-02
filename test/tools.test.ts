@@ -295,4 +295,56 @@ describe("done-when walkthrough", () => {
       "msg_discussed",
     ])
   })
+
+  test("a deploy that is found wanting becomes a new linked ticket, not a reopened one", async () => {
+    const { store, call } = setup()
+    const first = await create(call)
+    for (const stage of ["building", "ready-to-deploy", "deployed"]) {
+      await call("ticket_stage", { ticket: first, stage })
+    }
+    await call("ticket_artifact", { ticket: first, kind: "deploy", name: "production", value: "deploy-1" })
+
+    // The deployed ticket is closed to further work; that is the whole point.
+    await expect(call("ticket_stage", { ticket: first, stage: "building" })).rejects.toThrow(
+      "cannot move from deployed to building",
+    )
+
+    // The check found a new intent, so it gets its own ticket and its own remit.
+    const followUp = idFrom(
+      (
+        await call("ticket_create", {
+          title: "Cap retries at five",
+          intent: "stop retrying after five attempts",
+        })
+      ).content,
+    )
+    await call("ticket_relation", { ticket: followUp, relation: "fork", target: first })
+    await call("ticket_artifact", { ticket: first, kind: "branch", name: "shipped", value: "main" })
+
+    // The first ticket keeps its whole history, including the deploy that led here.
+    expect(derive(store.events(first))).toMatchObject({ stage: "deployed" })
+    expect(derive(store.events(first)).artifacts.map((artifact) => artifact.kind)).toEqual(["deploy", "branch"])
+    // The new ticket starts clean at planned and points back at what prompted it.
+    expect(derive(store.events(followUp))).toMatchObject({ stage: "planned" })
+    expect(derive(store.events(followUp)).relations).toEqual([
+      { relation: "fork", ticketID: first, at: expect.any(Number) },
+    ])
+  })
+
+  test("a replaced ticket is superseded, which is the only move left after deploy", async () => {
+    const { store, call } = setup()
+    const first = await create(call)
+    for (const stage of ["building", "ready-to-deploy", "deployed"]) {
+      await call("ticket_stage", { ticket: first, stage })
+    }
+    const replacement = idFrom(
+      (await call("ticket_create", { title: "Send retry v2", intent: "retry with jitter" })).content,
+    )
+    await call("ticket_relation", { ticket: first, relation: "supersedes", target: replacement })
+    await call("ticket_stage", { ticket: first, stage: "superseded" })
+    expect(derive(store.events(first)).stage).toBe("superseded")
+    await expect(call("ticket_stage", { ticket: first, stage: "building" })).rejects.toThrow(
+      "cannot move from superseded to building",
+    )
+  })
 })

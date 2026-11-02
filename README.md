@@ -30,9 +30,34 @@ A session is the context container; a ticket is the project record. One session 
 
 ## Model
 
-### Stages
+### One ticket is one pass: plan → build → check → deploy
 
-A closed set, with transitions enforced in `src/ticket.ts`:
+That is the whole shape. A ticket is one intent taken through one pass:
+
+```
+planned ──────────→ building ──────────→ ready-to-deploy ──────────→ deployed
+(plan)              (do)                 (check: a person decides)    (ship)
+                                            │
+                                            └─→ building   (check says: not yet)
+```
+
+`ready-to-deploy` is the check point: the work exists and a person decides whether it ships. Nothing else waits on a person.
+
+**`deployed` is a one-way door.** The only move out of it is `superseded`. A ticket never goes back to `building`, because a ticket records one intent and reopening it would blur what that intent was.
+
+### A check that finds the work wanting raises a new ticket
+
+This is the common case — build, deploy, look at it, and decide it needs more — and the answer is a new ticket, not a reopened one:
+
+1. The follow-up gets its own `ticket_create` with its own intent, so its remit stays clear enough to hand over.
+2. It records `relation: fork` (the work came out of the deployed ticket) or `relation: supersedes` (it replaces it) pointing at the original.
+3. The original stays `deployed` with its full log, including the deploy artifact that produced the follow-up.
+
+Tickets are cheap. One intent per ticket is what makes "hand it over" mean something, and the relation is what keeps the chain readable instead of leaving a pile of unrelated rows.
+
+### Stage set and legal moves
+
+The set is closed and transitions are enforced in `src/ticket.ts`:
 
 ```
 planned ──┬─→ building ──┬─→ ready-to-deploy ──┬─→ deployed ──→ superseded
@@ -44,10 +69,11 @@ planned ──┬─→ building ──┬─→ ready-to-deploy ──┬─→
                                                │          └─→ abandoned / superseded
 ```
 
-- `deployed` is not terminal: the work shipped, but a later ticket can still supersede it. It has no way back to `building`, because that would make the record claim something that already happened did not.
+- `held` is a stage, not a new ticket: it can return to any live stage.
 - `abandoned` and `superseded` are terminal.
+- `planned → deployed` is refused: a ticket has to record a build or a check first.
 - A move to the stage a ticket is already in is refused. Use a note or a handover for that.
-- `planned → deployed` is refused: a ticket has to pass through building or ready-to-deploy.
+- A deployed ticket can only be `superseded`. Follow-up work is a new ticket (above).
 
 ### Events, not state
 
@@ -177,4 +203,5 @@ The host-boundary test lives in the OpenCode checkout at `packages/core/test/plu
 - **No automatic ticket creation.** Nothing derives a ticket from events.
 - **No reviewer or capability changes.**
 - **Staleness only applies to live stages.** Waiting work is not called stale, because waiting is the ticket doing its job.
+- **A deployed ticket never goes stale.** Nothing chases a deploy that was never checked; the follow-up is a ticket somebody has to raise. That is the deliberate trade for keeping one ticket to one pass.
 - **The board never writes.** Fixing a wrong ticket means an agent appends a correcting event.

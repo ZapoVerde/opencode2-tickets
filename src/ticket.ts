@@ -28,9 +28,20 @@ export const RELATIONS = ["fork", "supersedes", "blocks"] as const
 export type Relation = (typeof RELATIONS)[number]
 
 /**
- * `deployed` is not terminal on purpose: the work shipped, but a later ticket
- * may still supersede it. It has no way back to building, because that would
- * make the record claim something that already happened did not.
+ * One ticket is one pass of plan → build → check → deploy, and nothing else.
+ *
+ *   planned ─────────────→ building ─────────→ ready-to-deploy ─────────→ deployed
+ *   (plan)                 (do)                (check: waits on a person)  (deploy)
+ *
+ * `ready-to-deploy` is the check point: the work exists and a person decides
+ * whether it ships. `deployed` is a one-way door — the only way out is
+ * `superseded`, because a ticket does not go back to building.
+ *
+ * A check that finds the work wanting is a NEW ticket, not a reopened one.
+ * Tickets are cheap and one-intent is the point: "add retry with backoff" and
+ * "cap retries at five" are two intents, so they are two tickets, and the
+ * second one says `fork` or `supersedes` so the chain stays readable. That is
+ * what keeps every ticket's remit clear enough to hand over.
  */
 const TRANSITIONS: Readonly<Record<Stage, readonly Stage[]>> = {
   planned: ["building", "ready-to-deploy", "held", "abandoned", "superseded"],
@@ -56,6 +67,15 @@ export function isRelation(value: unknown): value is Relation {
 
 export function isTerminal(stage: Stage) {
   return TERMINAL_STAGES.includes(stage)
+}
+
+/**
+ * `deployed` is finished in the sense that matters to the board: nothing more
+ * happens to this ticket. A follow-up is a new ticket. It is not in
+ * `TERMINAL_STAGES` only because `superseded` is still a legal last move.
+ */
+export function isFinished(stage: Stage) {
+  return stage === "deployed" || isTerminal(stage)
 }
 
 /** A transition to the same stage is not a transition; use a note or handover for that. */
@@ -339,10 +359,10 @@ export function board(entries: readonly Entry[], now: number, staleAfter = STALE
     .filter((row) => row.waiting || row.blocked)
     .sort(compareNeedsYou)
   const working = rows
-    .filter((row) => !row.waiting && !row.blocked && row.state.stage !== "deployed" && !isTerminal(row.state.stage))
+    .filter((row) => !row.waiting && !row.blocked && !isFinished(row.state.stage))
     .sort(compareRecent)
   const closed = rows
-    .filter((row) => !row.waiting && !row.blocked && (row.state.stage === "deployed" || isTerminal(row.state.stage)))
+    .filter((row) => !row.waiting && !row.blocked && isFinished(row.state.stage))
     .sort(compareRecent)
   return {
     needsYou,
@@ -362,7 +382,11 @@ function compareNeedsYou(left: BoardTicket, right: BoardTicket) {
   return rank(left) - rank(right) || compareRecent(left, right)
 }
 
-/** A ticket is blocked while an unfinished ticket lists a `blocks` relation to it. */
+/**
+ * A ticket is blocked while another ticket that is still in flight lists a
+ * `blocks` relation to it. A shipped or closed blocker has stopped blocking,
+ * because nothing else is going to happen to it.
+ */
 function buildRow(
   ticket: TicketRecord,
   state: TicketState,
@@ -372,7 +396,7 @@ function buildRow(
 ): BoardTicket {
   const blockers = derived.flatMap((other) => {
     if (other.entry.ticket.id === ticket.id) return []
-    if (other.state.stage === "deployed" || isTerminal(other.state.stage)) return []
+    if (isFinished(other.state.stage)) return []
     const blocks = other.state.relations.some(
       (relation) => relation.relation === "blocks" && relation.ticketID === ticket.id,
     )

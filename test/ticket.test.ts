@@ -5,6 +5,7 @@ import {
   board,
   canTransition,
   derive,
+  isFinished,
   isTerminal,
   plan,
   singleLine,
@@ -50,10 +51,29 @@ describe("stage set", () => {
     expect(STAGES.filter(isTerminal)).toEqual(["abandoned", "superseded"])
   })
 
-  test("deployed is not terminal: shipped work can still be superseded", () => {
-    expect(isTerminal("deployed")).toBe(false)
+  test("deployed is a one-way door: a follow-up is a new ticket, not a reopened one", () => {
     expect(canTransition("deployed", "superseded")).toBe(true)
-    expect(canTransition("deployed", "building")).toBe(false)
+    expect(isFinished("deployed")).toBe(true)
+    // The loop this prevents: build, deploy, check, find it wanting, send back.
+    for (const stage of ["planned", "building", "ready-to-deploy", "held"] as const) {
+      expect(canTransition("deployed", stage)).toBe(false)
+    }
+  })
+
+  test("one ticket is plan, build, check, deploy — in that order", () => {
+    expect(canTransition("planned", "building")).toBe(true)
+    expect(canTransition("building", "ready-to-deploy")).toBe(true)
+    expect(canTransition("ready-to-deploy", "deployed")).toBe(true)
+    // Skipping the check is not a pass, and the check can send work back to build.
+    expect(canTransition("planned", "ready-to-deploy")).toBe(true)
+    expect(canTransition("planned", "deployed")).toBe(false)
+    expect(canTransition("ready-to-deploy", "building")).toBe(true)
+  })
+
+  test("finished means no further work happens to this ticket", () => {
+    expect(STAGES.filter(isFinished)).toEqual(["deployed", "abandoned", "superseded"])
+    expect(isFinished("ready-to-deploy")).toBe(false)
+    expect(isFinished("held")).toBe(false)
   })
 
   test("terminal stages never move again", () => {

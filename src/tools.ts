@@ -62,6 +62,7 @@ export function tools(deps: ToolDeps): readonly TicketTool[] {
         "Create a durable ticket for work that has started but is not deployable yet.",
         "Use it only when the work will outlive this session; do not ticket finished or trivial tasks.",
         "The intent is the one line that should be true when the ticket is done.",
+        "One ticket is one pass of plan, build, check, deploy. When a check finds the work wanting, raise a new ticket for the follow-up rather than reopening this one, and relate them so the chain stays readable.",
       ].join(" "),
       input: {
         type: "object",
@@ -139,6 +140,7 @@ export function tools(deps: ToolDeps): readonly TicketTool[] {
         stageDescription + ".",
         "Use ready-to-deploy when the work is done and waiting on a person, and held when it is deliberately parked.",
         "ready-to-deploy and held are stages, not new tickets.",
+        "deployed is final: if checking the deploy finds the work wanting, raise a NEW ticket for the follow-up and relate it (fork, or supersedes when it replaces this one). Do not try to reopen a deployed ticket.",
       ].join(" "),
       input: {
         type: "object",

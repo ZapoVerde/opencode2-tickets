@@ -7,6 +7,9 @@ export type BoardRow = {
   readonly id: string
   readonly title: string
   readonly intent: string
+  readonly kind: string
+  /** What the reviewer checks at ready-to-deploy. */
+  readonly done: readonly string[]
   readonly stage: string
   readonly owner: string | null
   readonly directory: string
@@ -66,6 +69,8 @@ export function readBoard(store: TicketStore, now: number, liveness = createLive
       id: row.ticket.id,
       title: row.ticket.title,
       intent: row.ticket.intent,
+      kind: row.ticket.kind,
+      done: row.ticket.done,
       stage: row.state.stage,
       owner: row.state.owner,
       directory: row.ticket.directory,

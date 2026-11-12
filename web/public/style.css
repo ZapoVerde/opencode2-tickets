@@ -203,6 +203,17 @@ body {
   color: var(--muted);
 }
 
+.kind {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--faint);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
 .question {
   margin: 10px 0 0;
   padding: 8px 10px;
@@ -275,7 +286,8 @@ body {
 
 .artifacts,
 .traces,
-.relations {
+.relations,
+.done {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -289,6 +301,15 @@ body {
 .relations li {
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.done li {
+  color: var(--text);
+}
+
+.done li::before {
+  content: "☐ ";
+  color: var(--faint);
 }
 
 .artifacts code,

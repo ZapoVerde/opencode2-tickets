@@ -1,11 +1,14 @@
 import {
   ARTIFACT_KINDS,
+  KINDS,
   RELATIONS,
   STAGES,
+  type Kind,
   type Stage,
   type Trace,
   type Write,
   derive,
+  doneLines,
   singleLine,
 } from "./ticket"
 import type { TicketStore } from "./store"
@@ -41,6 +44,12 @@ export type TicketTool = {
 
 const stageDescription = `One of: ${STAGES.join(", ")}`
 
+const kindDescription = [
+  `One of: ${KINDS.join(", ")}.`,
+  "feature is new behaviour, fix repairs one, ui is an interface pass, refactor changes no behaviour,",
+  "ops is deploy and bookkeeping, research answers a question without building.",
+].join(" ")
+
 export type ToolDeps = {
   readonly store: TicketStore
   readonly directory: string
@@ -62,6 +71,9 @@ export function tools(deps: ToolDeps): readonly TicketTool[] {
         "Create a durable ticket for work that has started but is not deployable yet.",
         "Use it only when the work will outlive this session; do not ticket finished or trivial tasks.",
         "The intent is the one line that should be true when the ticket is done.",
+        "The done lines are what the reviewer checks at ready-to-deploy: checkable statements, not a description of the work.",
+        "For a ui pass, do not try to predict taste; the done lines are what the agent exercised (every shipped control),",
+        "and which controls it could not exercise.",
         "One ticket is one pass of plan, build, check, deploy. When a check finds the work wanting, raise a new ticket for the follow-up rather than reopening this one, and relate them so the chain stays readable.",
       ].join(" "),
       input: {
@@ -69,6 +81,13 @@ export function tools(deps: ToolDeps): readonly TicketTool[] {
         properties: {
           title: { type: "string", description: "Short list title, e.g. 'WhatsApp send retry'" },
           intent: { type: "string", description: "One line: what should be true when this is done" },
+          kind: { type: "string", enum: [...KINDS], description: kindDescription },
+          done: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: 6,
+            description: "Two to four checkable lines a person reviews at ready-to-deploy",
+          },
           owner: { type: "string", description: "Agent owning the work now" },
           repo: { type: "string", description: "Repository directory, when this is a worktree of it" },
         },
@@ -82,17 +101,21 @@ export function tools(deps: ToolDeps): readonly TicketTool[] {
         if (title.length === 0) throw new Error("title is empty")
         if (intent.length === 0) throw new Error("intent is empty")
         const owner = typeof input.owner === "string" ? input.owner.trim() : ""
+        const kind: Kind = KINDS.find((candidate) => candidate === input.kind) ?? "feature"
+        const done = doneLines(Array.isArray(input.done) ? input.done.map(String) : [])
         const ticket = deps.store.create({
           title,
           intent,
+          kind,
+          done,
           directory: deps.directory,
           repo: typeof input.repo === "string" && input.repo.length > 0 ? input.repo : deps.repo,
           owner: owner.length === 0 ? null : owner,
           trace: trace(context),
         })
         return {
-          content: `Created ${ticket.id}: ${ticket.title}`,
-          metadata: { ticketID: ticket.id },
+          content: `Created ${ticket.id} (${ticket.kind}): ${ticket.title}`,
+          metadata: { ticketID: ticket.id, kind: ticket.kind, done: ticket.done },
         }
       },
     },
@@ -156,8 +179,13 @@ export function tools(deps: ToolDeps): readonly TicketTool[] {
         requireTicket(input.ticket)
         const previous = derive(deps.store.events(input.ticket)).stage
         const event = append(input.ticket, { kind: "stage", stage: input.stage as Stage }, context)
+        const ticket = deps.store.get(input.ticket)
+        const reminder =
+          event.stage === "ready-to-deploy" && (ticket?.done.length ?? 0) === 0
+            ? " · no done lines recorded, so the reviewer has only the intent"
+            : ""
         return {
-          content: `${input.ticket}: ${previous} → ${event.stage}`,
+          content: `${input.ticket}: ${previous} → ${event.stage}${reminder}`,
           metadata: { ticketID: input.ticket, eventID: event.id },
         }
       },

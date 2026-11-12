@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite"
 import { mkdtempSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { TicketWriteError, migrate, openStore } from "../src/store"
+import { SCHEMA_VERSION, TicketWriteError, migrate, openStore } from "../src/store"
 import { derive } from "../src/ticket"
 
 const root = mkdtempSync(path.join(os.tmpdir(), "opencode2-tickets-store-"))
@@ -93,6 +93,28 @@ describe("store", () => {
     second.close?.()
   })
 
+  test("round-trips kind and done through a reopened sidecar", () => {
+    const file = path.join(root, "kind-done.db")
+    const first = openStore(file)
+    const ticket = first.create({
+      title: "Reader controls",
+      intent: "each control does something",
+      kind: "ui",
+      done: ["every shipped control was tapped", "the unexercised ones are named"],
+      directory: "/repo",
+      repo: "/repo",
+      owner: "build",
+      trace,
+    })
+    first.close()
+    const second = openStore(file)
+    expect(second.get(ticket.id)).toMatchObject({
+      kind: "ui",
+      done: ["every shipped control was tapped", "the unexercised ones are named"],
+    })
+    second.close()
+  })
+
   test("an unknown ticket id is refused by the store, not just by the tools", () => {
     const store = openStore(":memory:")
     // A ticket is a row plus a log. Appending to a missing row would leave an
@@ -104,11 +126,66 @@ describe("store", () => {
 })
 
 describe("migration", () => {
-  test("creating the schema twice is a no-op and records one version", () => {
+  test("creating the schema twice is a no-op and records the current version", () => {
     const db = new Database(":memory:")
-    expect(migrate(db)).toBe(1)
-    expect(migrate(db)).toBe(1)
-    expect(db.query("SELECT version FROM schema_meta").all()).toEqual([{ version: 1 }])
+    expect(migrate(db)).toBe(SCHEMA_VERSION)
+    expect(migrate(db)).toBe(SCHEMA_VERSION)
+    expect(db.query("SELECT version FROM schema_meta").all()).toEqual([{ version: SCHEMA_VERSION }])
+  })
+
+  test("a v1 sidecar gains kind and done without losing a row", () => {
+    const db = new Database(":memory:")
+    db.exec(`
+      CREATE TABLE ticket (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, intent TEXT NOT NULL,
+        directory TEXT NOT NULL, repo TEXT, created_at INTEGER NOT NULL
+      );
+      CREATE TABLE ticket_event (
+        id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL,
+        stage TEXT, owner TEXT, text TEXT, artifact_kind TEXT, artifact_name TEXT,
+        artifact_value TEXT, relation TEXT, related_ticket_id TEXT, session_id TEXT,
+        message_id TEXT, agent TEXT, created_at INTEGER NOT NULL, UNIQUE (ticket_id, seq)
+      );
+      CREATE TABLE schema_meta (version INTEGER NOT NULL);
+      INSERT INTO schema_meta (version) VALUES (1);
+      INSERT INTO ticket (id, title, intent, directory, repo, created_at)
+        VALUES ('tick_old', 'old', 'still readable', '/repo', '/repo', 1);
+    `)
+    migrate(db)
+    // Reading through the same connection the migration ran on proves the row
+    // survives and the new columns carry their defaults.
+    const row = db
+      .query<{ kind: string; done: string }, [string]>("SELECT kind, done FROM ticket WHERE id = ?")
+      .get("tick_old")
+    expect(row).toEqual({ kind: "feature", done: "[]" })
+  })
+
+  test("a v1 sidecar read read-only reports the defaults instead of failing", () => {
+    const file = path.join(root, "v1-readonly.db")
+    const db = new Database(file)
+    db.exec(`
+      CREATE TABLE ticket (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, intent TEXT NOT NULL,
+        directory TEXT NOT NULL, repo TEXT, created_at INTEGER NOT NULL
+      );
+      CREATE TABLE ticket_event (
+        id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL,
+        stage TEXT, owner TEXT, text TEXT, artifact_kind TEXT, artifact_name TEXT,
+        artifact_value TEXT, relation TEXT, related_ticket_id TEXT, session_id TEXT,
+        message_id TEXT, agent TEXT, created_at INTEGER NOT NULL, UNIQUE (ticket_id, seq)
+      );
+      CREATE TABLE schema_meta (version INTEGER NOT NULL);
+      INSERT INTO schema_meta (version) VALUES (1);
+      INSERT INTO ticket (id, title, intent, directory, repo, created_at)
+        VALUES ('tick_old', 'old', 'still readable', '/repo', '/repo', 1);
+    `)
+    db.close()
+    // The board opens read-only and cannot migrate, so a board deployed before
+    // the next agent load must still read the older file.
+    const store = openStore(file, { readonly: true })
+    expect(store.get("tick_old")).toMatchObject({ kind: "feature", done: [] })
+    expect(store.tickets()).toHaveLength(1)
+    store.close()
   })
 
   test("the schema keeps closed sets as text and timestamps as epoch ms", () => {

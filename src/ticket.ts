@@ -28,6 +28,17 @@ export const RELATIONS = ["fork", "supersedes", "blocks"] as const
 export type Relation = (typeof RELATIONS)[number]
 
 /**
+ * What kind of pass this is. The kind exists so `done` lines can be judged
+ * against the right question: a feature is judged on behaviour, a refactor on
+ * "nothing changed", ops on "the deploy ran and the worktree is gone".
+ */
+export const KINDS = ["feature", "fix", "ui", "refactor", "ops", "research"] as const
+export type Kind = (typeof KINDS)[number]
+
+/** The longest `done` list a ticket carries; a definition of done is not a backlog. */
+export const MAX_DONE = 6
+
+/**
  * One ticket is one pass of plan → build → check → deploy, and nothing else.
  *
  *   planned ─────────────→ building ─────────→ ready-to-deploy ─────────→ deployed
@@ -65,6 +76,28 @@ export function isRelation(value: unknown): value is Relation {
   return RELATIONS.some((relation) => relation === value)
 }
 
+export function isKind(value: unknown): value is Kind {
+  return KINDS.some((kind) => kind === value)
+}
+
+/**
+ * A definition of done is a short list of checkable lines, not prose. Free text
+ * is folded to one line each; empty and duplicate lines are dropped so the
+ * board never shows a checklist that is already noise.
+ */
+export function doneLines(value: readonly string[] | undefined): readonly string[] {
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const raw of value ?? []) {
+    const line = singleLine(raw)
+    if (line.length === 0 || seen.has(line)) continue
+    seen.add(line)
+    lines.push(line)
+    if (lines.length === MAX_DONE) break
+  }
+  return lines
+}
+
 export function isTerminal(stage: Stage) {
   return TERMINAL_STAGES.includes(stage)
 }
@@ -87,6 +120,9 @@ export type TicketRecord = {
   readonly id: string
   readonly title: string
   readonly intent: string
+  readonly kind: Kind
+  /** The checkable lines a person reviews at `ready-to-deploy`. Empty is allowed. */
+  readonly done: readonly string[]
   /** Absolute path the work lives in; also the repo identity for a plain clone. */
   readonly directory: string
   readonly repo: string | null

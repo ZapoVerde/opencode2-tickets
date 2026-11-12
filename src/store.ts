@@ -1,17 +1,20 @@
-import { Database } from "bun:sqlite"
+import { Database, type Statement } from "bun:sqlite"
 import { mkdirSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import {
   type ArtifactKind,
   type EventFields,
+  type Kind,
   type Relation,
   type TicketEvent,
   type TicketRecord,
   type Trace,
   type Write,
   derive,
+  doneLines,
   isArtifactKind,
+  isKind,
   isRelation,
   isStage,
   plan,
@@ -37,19 +40,24 @@ export type TicketStore = {
 export type CreateInput = {
   readonly title: string
   readonly intent: string
+  /** Defaults to `feature`; the tool surface validates the closed set, so an unknown value never arrives. */
+  readonly kind?: Kind
+  readonly done?: readonly string[]
   readonly directory: string
   readonly repo: string | null
   readonly owner: string | null
   readonly trace: Trace
 }
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 const schema = `
 CREATE TABLE IF NOT EXISTS ticket (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   intent TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'feature',
+  done TEXT NOT NULL DEFAULT '[]',
   directory TEXT NOT NULL,
   repo TEXT,
   created_at INTEGER NOT NULL
@@ -105,14 +113,18 @@ export function openStore(dbPath: string, options: { readonly readonly?: boolean
         id: newID("tick"),
         title: input.title.trim(),
         intent: input.intent.trim(),
+        kind: input.kind ?? "feature",
+        done: doneLines(input.done),
         directory: input.directory,
         repo: input.repo,
         createdAt: now,
       }
-      connection.insertTicket.run({
+      connection.writes().ticket.run({
         $id: ticket.id,
         $title: ticket.title,
         $intent: ticket.intent,
+        $kind: ticket.kind,
+        $done: JSON.stringify(ticket.done),
         $directory: ticket.directory,
         $repo: ticket.repo,
         $created_at: ticket.createdAt,
@@ -155,16 +167,20 @@ export function openStore(dbPath: string, options: { readonly readonly?: boolean
       )
     },
     get(ticketID) {
-      return connection.getTicket.get(ticketID) ?? undefined
+      const row = connection.getTicket.get(ticketID)
+      return row === null ? undefined : toTicket(row)
     },
     events(ticketID) {
       return readEvents(connection, ticketID)
     },
     tickets() {
-      return connection.listTickets.all()
+      return connection.listTickets.all().map(toTicket)
     },
     board() {
-      return connection.listTickets.all().map((ticket) => ({ ticket, events: readEvents(connection, ticket.id) }))
+      return connection.listTickets
+        .all()
+        .map(toTicket)
+        .map((ticket) => ({ ticket, events: readEvents(connection, ticket.id) }))
     },
     close() {
       connection.db.close()
@@ -183,7 +199,7 @@ function appendEvent(connection: Connection, ticketID: string, fields: EventFiel
     ...fields,
     createdAt: now,
   }
-  connection.insertEvent.run({
+  connection.writes().event.run({
     $id: event.id,
     $ticket_id: event.ticketID,
     $seq: event.seq,
@@ -214,27 +230,38 @@ function connect(dbPath: string, readonly: boolean) {
     db.exec("PRAGMA journal_mode = WAL")
     migrate(db)
   }
+  // The board reads read-only, so it cannot migrate. A sidecar written by an
+  // older build is read with the defaults for the columns it does not have yet,
+  // which keeps a board deployed before the next agent load from failing shut.
+  const present = new Set(db.query<{ name: string }, []>("PRAGMA table_info(ticket)").all().map((column) => column.name))
+  const kind = present.has("kind") ? "kind" : "'feature' AS kind"
+  const done = present.has("done") ? "done" : "'[]' AS done"
+  const select = `SELECT id, title, intent, ${kind}, ${done}, directory, repo, created_at FROM ticket`
+  // Write statements are prepared on first use: a read-only connection cannot
+  // prepare an INSERT against a column the file does not have yet, and the board
+  // never writes anyway.
+  let prepared: { readonly ticket: Statement; readonly event: Statement } | undefined
+  const writes = () =>
+    (prepared ??= {
+      ticket: db.prepare(
+        `INSERT INTO ticket (id, title, intent, kind, done, directory, repo, created_at)
+         VALUES ($id, $title, $intent, $kind, $done, $directory, $repo, $created_at)`,
+      ),
+      event: db.prepare(
+        `INSERT INTO ticket_event (
+           id, ticket_id, seq, kind, stage, owner, text, artifact_kind, artifact_name,
+           artifact_value, relation, related_ticket_id, session_id, message_id, agent, created_at
+         ) VALUES (
+           $id, $ticket_id, $seq, $kind, $stage, $owner, $text, $artifact_kind, $artifact_name,
+           $artifact_value, $relation, $related_ticket_id, $session_id, $message_id, $agent, $created_at
+         )`,
+      ),
+    })
   return {
     db,
-    insertTicket: db.prepare(
-      `INSERT INTO ticket (id, title, intent, directory, repo, created_at)
-       VALUES ($id, $title, $intent, $directory, $repo, $created_at)`,
-    ),
-    insertEvent: db.prepare(
-      `INSERT INTO ticket_event (
-         id, ticket_id, seq, kind, stage, owner, text, artifact_kind, artifact_name,
-         artifact_value, relation, related_ticket_id, session_id, message_id, agent, created_at
-       ) VALUES (
-         $id, $ticket_id, $seq, $kind, $stage, $owner, $text, $artifact_kind, $artifact_name,
-         $artifact_value, $relation, $related_ticket_id, $session_id, $message_id, $agent, $created_at
-       )`,
-    ),
-    getTicket: db.query<TicketRecord, [string]>(
-      "SELECT id, title, intent, directory, repo, created_at AS createdAt FROM ticket WHERE id = ?",
-    ),
-    listTickets: db.query<TicketRecord, []>(
-      "SELECT id, title, intent, directory, repo, created_at AS createdAt FROM ticket ORDER BY created_at DESC",
-    ),
+    writes,
+    getTicket: db.query<RawTicket, [string]>(`${select} WHERE id = ?`),
+    listTickets: db.query<RawTicket, []>(`${select} ORDER BY created_at DESC`),
     nextSeq: db.query<{ next: number }, [string]>(
       "SELECT COALESCE(MAX(seq) + 1, 0) AS next FROM ticket_event WHERE ticket_id = ?",
     ),
@@ -242,12 +269,58 @@ function connect(dbPath: string, readonly: boolean) {
   }
 }
 
-/** Create the current schema. Opening an existing sidecar is a no-op; no column has changed yet. */
+/** Create the current schema, then add anything an older sidecar is missing. */
 export function migrate(db: Database) {
   db.exec(schema)
+  // `CREATE TABLE IF NOT EXISTS` cannot add a column to a v1 sidecar, so the
+  // additions are checked by name. Adding a column is the only migration this
+  // store performs; no row is ever rewritten.
+  ensureColumn(db, "ticket", "kind", "TEXT NOT NULL DEFAULT 'feature'")
+  ensureColumn(db, "ticket", "done", "TEXT NOT NULL DEFAULT '[]'")
   const row = db.query<{ version: number }, []>("SELECT version FROM schema_meta").get()
   if (row === null) db.prepare("INSERT INTO schema_meta (version) VALUES (?)").run(SCHEMA_VERSION)
+  else db.prepare("UPDATE schema_meta SET version = ?").run(SCHEMA_VERSION)
   return SCHEMA_VERSION
+}
+
+function ensureColumn(db: Database, table: string, column: string, definition: string) {
+  const columns = db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all()
+  if (columns.some((item) => item.name === column)) return
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+}
+
+type RawTicket = {
+  readonly id: string
+  readonly title: string
+  readonly intent: string
+  readonly kind: string
+  readonly done: string
+  readonly directory: string
+  readonly repo: string | null
+  readonly created_at: number
+}
+
+function toTicket(row: RawTicket): TicketRecord {
+  return {
+    id: row.id,
+    title: row.title,
+    intent: row.intent,
+    kind: isKind(row.kind) ? row.kind : "feature",
+    done: parseDone(row.done),
+    directory: row.directory,
+    repo: row.repo,
+    createdAt: row.created_at,
+  }
+}
+
+/** A hand-edited or older row must not fail a read; anything unreadable reads as no checklist. */
+function parseDone(value: string): readonly string[] {
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? doneLines(parsed.filter((line): line is string => typeof line === "string")) : []
+  } catch {
+    return []
+  }
 }
 
 function readEvents(connection: Connection, ticketID: string): readonly TicketEvent[] {

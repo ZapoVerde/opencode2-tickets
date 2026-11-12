@@ -93,6 +93,14 @@ const renderRelations = (row) => {
   return list
 }
 
+const renderDone = (row) => {
+  if (row.done.length === 0) return null
+  const list = el("ul", "done")
+  list.append(el("li", "section-label", "Done when"))
+  for (const line of row.done) list.append(el("li", null, line))
+  return list
+}
+
 const renderCard = (row) => {
   const attention = row.stage === "ready-to-deploy" || row.stage === "held" || row.blocked
   const card = el("article", "card")
@@ -100,6 +108,7 @@ const renderCard = (row) => {
 
   const head = el("div", "card-head")
   head.append(el("h3", "card-title", row.title))
+  if (row.kind) head.append(el("span", "kind", row.kind))
   const stage = el("span", "stage", row.stage)
   stage.dataset.stage = row.stage
   head.append(stage)
@@ -131,7 +140,7 @@ const renderCard = (row) => {
   meta.append(el("span", "meta-date", relative(row.lastEventAt)))
   card.append(meta)
 
-  for (const section of [renderArtifacts(row), renderRelations(row), renderTraces(row)]) {
+  for (const section of [renderDone(row), renderArtifacts(row), renderRelations(row), renderTraces(row)]) {
     if (section) card.append(section)
   }
 

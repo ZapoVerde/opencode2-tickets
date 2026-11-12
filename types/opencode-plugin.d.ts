@@ -74,6 +74,24 @@ declare module "@opencode/plugin" {
   export namespace Plugin {
     export type Cleanup = () => Promise<void> | void
 
+    /** One permission evaluation. Mutating `effect` and `message` decides the request. */
+    export interface PermissionEvaluation {
+      readonly sessionID: string
+      readonly agent?: string
+      readonly action: string
+      readonly resources: ReadonlyArray<string>
+      readonly metadata?: Record<string, unknown>
+      readonly source?: string
+      effect: "allow" | "deny" | "ask"
+      message?: string
+    }
+
+    export interface SessionRef {
+      readonly id: string
+      readonly parentID?: string
+      readonly agent?: string
+    }
+
     export interface Context {
       /** Configuration supplied next to the plugin entry in `plugins`. */
       readonly options: Readonly<Record<string, unknown>>
@@ -85,6 +103,16 @@ declare module "@opencode/plugin" {
       }
       readonly tool: {
         transform(callback: (editor: ToolEditor) => void): Promise<Registration>
+      }
+      readonly permission: {
+        /** Mutating the event decides the evaluation; the hook runs after the session's rules. */
+        hook(
+          name: "evaluate",
+          callback: (event: PermissionEvaluation) => void | Promise<void>,
+        ): Promise<Registration>
+      }
+      readonly session: {
+        get(input: { readonly sessionID: string }): Promise<{ readonly data: SessionRef }>
       }
     }
 

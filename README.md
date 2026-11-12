@@ -16,6 +16,26 @@ Register the directory in `opencode.json`:
 
 The plugin has no runtime dependencies: the host provides `@opencode/plugin`, and `bun:sqlite` ships with Bun. Do not add either to this directory's `node_modules`; the host refuses to load its own packages from a plugin.
 
+### Options
+
+| Option | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `dbPath` | path | XDG default | Sidecar location. |
+| `enforce` | `off`, `build`, `all` | `off` | Whether the write gate is armed. `OPENCODE_TICKETS_ENFORCE` is read when the option is absent. |
+
+```json
+{
+  "plugins": [
+    { "package": "/config/workspace/opencode2-tickets", "options": { "enforce": "build" } }
+  ]
+}
+```
+
+`enforce` defaults to **off** on purpose: installing the plugin, or restarting a
+server that already has it, must not start refusing writes in a session that is
+mid-build. Arming the gate is a deliberate act, and it takes effect on the next
+plugin load.
+
 ### Database path
 
 1. plugin option `dbPath`
@@ -32,7 +52,8 @@ A session is the context container; a ticket is the project record. One session 
 
 ### One ticket is one pass: plan → build → check → deploy
 
-That is the whole shape. A ticket is one intent taken through one pass:
+That is the whole shape. A ticket is one intent taken through one pass, and it
+carries the lines the reviewer actually checks:
 
 ```
 planned ──────────→ building ──────────→ ready-to-deploy ──────────→ deployed
@@ -44,6 +65,14 @@ planned ──────────→ building ─────────�
 `ready-to-deploy` is the check point: the work exists and a person decides whether it ships. Nothing else waits on a person.
 
 **`deployed` is a one-way door.** The only move out of it is `superseded`. A ticket never goes back to `building`, because a ticket records one intent and reopening it would blur what that intent was.
+
+### Kind and done: what the reviewer checks
+
+A ticket names its `kind` — `feature`, `fix`, `ui`, `refactor`, `ops`, or `research` — and carries up to six `done` lines: checkable statements, not a description of the work.
+
+The kind sets the question the lines answer. A refactor is judged on "nothing changed". Ops is judged on "the send ran and the worktree is gone". A UI pass is judged on what the agent **exercised**: every shipped control, and the ones it could not exercise, named. Taste is not predicted in a line, because nobody can predict what they will hate on first look.
+
+Moving to `ready-to-deploy` with no `done` lines is allowed and the tool says so, so a person is never told "done" without being told what would prove it.
 
 ### A check that finds the work wanting raises a new ticket
 
@@ -78,6 +107,8 @@ planned ──┬─→ building ──┬─→ ready-to-deploy ──┬─→
 ### Events, not state
 
 Everything is an append-only event log (`ticket_event`). Current state is a fold over the ordered log, so replaying a log always gives the same answer and no write rewrites history.
+
+`title`, `intent`, `kind` and `done` are the ticket's identity, not its history: they are written once, on the `ticket` row, the same way the existing fields are. A correction is a new ticket, which is what keeps the history honest.
 
 | Kind | Meaning |
 | --- | --- |
@@ -115,7 +146,7 @@ Registered as `codemode: false` tools; every write records the calling session, 
 
 | Tool | Purpose |
 | --- | --- |
-| `ticket_create` | `title`, `intent`, optional `owner`, optional `repo` |
+| `ticket_create` | `title`, `intent`, optional `kind`, `done[]`, `owner`, `repo` |
 | `ticket_handover` | `ticket`, `stage`, `note`, optional `owner` |
 | `ticket_stage` | `ticket`, `stage` |
 | `ticket_owner` | `ticket`, `owner` (or `null`) |
@@ -127,6 +158,32 @@ Registered as `codemode: false` tools; every write records the calling session, 
 A refused write is a tool failure whose message is the rule, for example `cannot move from planned to deployed`. The pure module is the only source of those rules, so a tool cannot invent a transition.
 
 There is no automatic ticket creation. Only an explicit tool call creates one.
+
+## The write gate
+
+With `enforce` set, an agent cannot change a file until a ticket for that
+repository is `building` in this session or one of its parents:
+
+- The hook is `permission.evaluate`, so it sees the action every file change
+  carries. A deny reaches the model as the tool's error, with the recovery in
+  the message: create a ticket, move it to `building`, retry.
+- `edit` is the gated action. That covers the edit, write and patch tools and a
+  shell redirect (`echo x > file`). Reads are never gated.
+- A ticket authorizes a session when its log holds a write from that session or
+  an ancestor. A sibling session cannot spend it, so adopting a ticket means
+  handing it over to yourself, which is the record the board needs.
+- A ticket in another repository never authorizes. Repositories are matched by
+  Git common directory, so a worktree and its checkout are the same repo.
+- `build` mode gates only sessions under the `build` agent, including subagents
+  by ancestry. `all` gates every agent; `off` disables the gate.
+- A sidecar that cannot be read **allows** the write. A broken database must
+  never take the server down with it.
+
+The gate is a forcing function, not a sandbox. Two writes bypass it by design:
+
+- Shell commands that write without asserting `edit` — `sed -i`, `rm`, `mv`,
+  `git checkout --`. Only redirects are classified as file writes.
+- A tool that asserts its own action name, such as an MCP write tool.
 
 ## The board
 
@@ -177,8 +234,9 @@ Only `opencode2-ui` and `opencode2-tickets` need recreating when those change; t
 ## Layout
 
 ```
-server.ts            plugin entry: registers the tools, derives the repo from git
-src/ticket.ts        pure model: stages, transitions, fold, board grouping (no I/O)
+server.ts            plugin entry: registers the tools and the write gate, derives the repo from git
+src/ticket.ts        pure model: stages, kinds, transitions, fold, board grouping (no I/O)
+src/gate.ts          pure write gate: which session, repository and stage authorizes an edit
 src/store.ts         append-only SQLite store and migration
 src/liveness.ts      live git reads: branch merged, worktree clean, commit present
 src/tools.ts         agent tool surface, one thin translation per write
@@ -198,12 +256,14 @@ bun test
 
 The host-boundary test lives in the OpenCode checkout at `packages/core/test/plugin/tickets-plugin.test.ts`: it loads this plugin through the real Promise adapter, calls its tools with schema-validated input, and asserts both a successful write and a surfaced refusal. It skips when this directory is absent.
 
-## Known limits (phase 1)
+## Known limits
 
-- **No permission change.** Grants keep clearing on agent switch. "A ticket authorizes Boss" is phase 2, deliberately parked.
+- **The gate is not a sandbox.** It refuses the `edit` action, which is every declared file write. A shell command that writes without asserting one (`sed -i`, `rm`, `mv`, `git checkout --`) and a tool that asserts its own action name (an MCP write tool) both pass. See "The write gate".
+- **The gate is off by default.** Arming it is a config change, so a restart never refuses writes in a session that is already building.
 - **No concurrency guardrails.** Serial use is a norm, not an enforced rule. Two agents writing the same ticket interleave append-only events; the fold stays consistent, but there is no conflict detection.
-- **No automatic ticket creation.** Nothing derives a ticket from events.
+- **No automatic ticket creation.** Nothing derives a ticket from events. The gate forces one before the first write; it cannot judge whether the ticket is honest.
 - **No reviewer or capability changes.**
 - **Staleness only applies to live stages.** Waiting work is not called stale, because waiting is the ticket doing its job.
 - **A deployed ticket never goes stale.** Nothing chases a deploy that was never checked; the follow-up is a ticket somebody has to raise. That is the deliberate trade for keeping one ticket to one pass.
 - **The board never writes.** Fixing a wrong ticket means an agent appends a correcting event.
+- **`done` lines are not verified.** They are the reviewer's checklist, not an assertion the store can check. Nothing prevents a ticket reaching `ready-to-deploy` with a line that is false.

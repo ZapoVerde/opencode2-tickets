@@ -282,7 +282,16 @@ describe("singleLine", () => {
   })
 })
 
-const ticket = (id: string, title = id) => ({ id, title, intent: `${title} intent`, directory: "/repo", repo: null, createdAt: 0 })
+const ticket = (id: string, title = id) => ({
+  id,
+  title,
+  intent: `${title} intent`,
+  kind: "feature" as const,
+  done: [],
+  directory: "/repo",
+  repo: null,
+  createdAt: 0,
+})
 
 describe("board", () => {
   const NOW = 1_000_000_000_000

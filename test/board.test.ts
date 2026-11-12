@@ -17,6 +17,8 @@ const seed = (store: ReturnType<typeof openStore>) => {
   const ticket = store.create({
     title: "WhatsApp send retry",
     intent: "add retry with backoff to WhatsApp send",
+    kind: "feature",
+    done: ["a failed send is retried once", "the give-up path is unchanged"],
     directory: "/repo",
     repo: "/config/workspace/opencode2",
     owner: "build",
@@ -43,6 +45,8 @@ describe("readBoard", () => {
       id: ticket.id,
       title: "WhatsApp send retry",
       intent: "add retry with backoff to WhatsApp send",
+      kind: "feature",
+      done: ["a failed send is retried once", "the give-up path is unchanged"],
       stage: "ready-to-deploy",
       owner: "build",
       repo: "/config/workspace/opencode2",

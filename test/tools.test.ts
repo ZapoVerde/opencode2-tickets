@@ -87,6 +87,35 @@ describe("ticket_create", () => {
     await expect(call("ticket_create", { title: "  ", intent: "i" })).rejects.toThrow("title is empty")
     await expect(call("ticket_create", { title: "t", intent: "\n" })).rejects.toThrow("intent is empty")
   })
+
+  test("records the kind and folds the done lines into a checklist", async () => {
+    const { store, call } = setup()
+    const result = await call("ticket_create", {
+      title: "Reader controls",
+      intent: "each control does something",
+      kind: "ui",
+      done: ["  every shipped control was tapped  ", "", "every shipped control was tapped", "font size changes"],
+    })
+    const ticket = store.get(idFrom(result.content))!
+    expect(ticket.kind).toBe("ui")
+    expect(ticket.done).toEqual(["every shipped control was tapped", "font size changes"])
+  })
+
+  test("an unknown kind falls back to feature and no done lines is legal", async () => {
+    const { store, call } = setup()
+    const result = await call("ticket_create", { title: "t", intent: "i", kind: "epic" })
+    expect(store.get(idFrom(result.content))).toMatchObject({ kind: "feature", done: [] })
+  })
+
+  test("caps the checklist so a definition of done cannot become a backlog", async () => {
+    const { store, call } = setup()
+    const result = await call("ticket_create", {
+      title: "t",
+      intent: "i",
+      done: ["a", "b", "c", "d", "e", "f", "g"],
+    })
+    expect(store.get(idFrom(result.content))!.done).toEqual(["a", "b", "c", "d", "e", "f"])
+  })
 })
 
 describe("stage transitions", () => {
@@ -101,7 +130,9 @@ describe("stage transitions", () => {
     const first = await call("ticket_stage", { ticket: id, stage: "building" })
     expect(first.content).toBe(`${id}: planned → building`)
     const second = await call("ticket_stage", { ticket: id, stage: "ready-to-deploy" })
-    expect(second.content).toBe(`${id}: building → ready-to-deploy`)
+    expect(second.content).toBe(
+      `${id}: building → ready-to-deploy · no done lines recorded, so the reviewer has only the intent`,
+    )
     expect(derive(store.events(id)).stage).toBe("ready-to-deploy")
   })
 

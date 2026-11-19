@@ -10,7 +10,7 @@ Register the directory in `opencode.json`:
 
 ```json
 {
-  "plugins": [{ "package": "/config/workspace/opencode2-tickets" }]
+  "plugins": [{ "package": "/path/to/opencode2-tickets" }]
 }
 ```
 
@@ -26,7 +26,7 @@ The plugin has no runtime dependencies: the host provides `@opencode/plugin`, an
 ```json
 {
   "plugins": [
-    { "package": "/config/workspace/opencode2-tickets", "options": { "enforce": "build" } }
+    { "package": "/path/to/opencode2-tickets", "options": { "enforce": "build" } }
   ]
 }
 ```
@@ -224,12 +224,20 @@ The sidecar is opened read-only per request, so a ticket written by a running ag
 
 ## Deployment
 
-The stack runs the board as its own container, mirroring the usage sidecar:
+`web/server.ts` is a plain HTTP server, so run it however you run sidecars:
 
-- `/config/workspace/stacks/opencode2/compose.yaml` → `tickets` service (`opencode2-tickets`, port 4600)
-- `/config/workspace/stacks/opencode2/ui.conf` → `/tickets` redirect and `/tickets/` proxy
+```sh
+bun run web/server.ts --port 4600
+```
 
-Only `opencode2-ui` and `opencode2-tickets` need recreating when those change; the main server is untouched.
+It serves the board, its JSON API, and the static page from `web/public/`. Keep the
+sidecar directory writable (SQLite needs `-wal`/`-shm` beside it) and mount it
+read-write into whatever container runs the board.
+
+To hang it off the app under a path, put a reverse proxy in front and exclude the
+prefix from the app's service-worker navigation fallback so an installed app does not
+answer it with the app shell. `/tickets` redirecting to `/tickets/` is the shape that
+works.
 
 ## Layout
 

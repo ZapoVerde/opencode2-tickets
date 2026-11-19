@@ -77,9 +77,9 @@ describe("ticket_create", () => {
     const result = await call("ticket_create", {
       title: "t",
       intent: "i",
-      repo: "/config/workspace/opencode2",
+      repo: "/projects/example",
     })
-    expect(store.get(idFrom(result.content))!.repo).toBe("/config/workspace/opencode2")
+    expect(store.get(idFrom(result.content))!.repo).toBe("/projects/example")
   })
 
   test("refuses an empty title or intent", async () => {

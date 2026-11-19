@@ -20,7 +20,7 @@ const seed = (store: ReturnType<typeof openStore>) => {
     kind: "feature",
     done: ["a failed send is retried once", "the give-up path is unchanged"],
     directory: "/repo",
-    repo: "/config/workspace/opencode2",
+    repo: "/projects/example",
     owner: "build",
     trace: created,
   })
@@ -49,7 +49,7 @@ describe("readBoard", () => {
       done: ["a failed send is retried once", "the give-up path is unchanged"],
       stage: "ready-to-deploy",
       owner: "build",
-      repo: "/config/workspace/opencode2",
+      repo: "/projects/example",
     })
     expect(response.needsYou[0]!.artifacts.map((artifact) => artifact.kind)).toEqual(["branch", "deploy"])
   })
